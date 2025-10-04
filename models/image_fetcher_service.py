@@ -213,7 +213,7 @@ class ProductImageFetcher(models.TransientModel):
         else:
             # Log no image found
             self.env['product.image.log'].log_operation(
-                product.id, 'fetch', 'info', 'No suitable image found from any source',
+                product.id, 'fetch', 'failed', 'No suitable image found from any source',
                 batch_id=batch_id, job_type=job_type, processing_time=time.time() - start_time
             )
         
@@ -502,27 +502,9 @@ class ProductImageFetcher(models.TransientModel):
             # Read image data
             image_data = response.content
             
-            # Validate size
-            if len(image_data) < config.min_image_size * 1024:  # Convert KB to bytes
-                _logger.warning(f"Image too small: {len(image_data)} bytes")
-                return None, {}
-                
-            if len(image_data) > config.max_image_size * 1024 * 1024:  # Convert MB to bytes
-                _logger.warning(f"Image too large: {len(image_data)} bytes")
-                return None, {}
-            
-            # Validate with PIL
+            # Basic validation with PIL
             try:
                 image = Image.open(io.BytesIO(image_data))
-                
-                # Check dimensions
-                if config.min_image_width and image.width < config.min_image_width:
-                    _logger.warning(f"Image width too small: {image.width}px")
-                    return None, {}
-                    
-                if config.min_image_height and image.height < config.min_image_height:
-                    _logger.warning(f"Image height too small: {image.height}px")
-                    return None, {}
                 
                 # Calculate quality score
                 quality_score = self._calculate_image_quality(image)
@@ -537,7 +519,7 @@ class ProductImageFetcher(models.TransientModel):
                     'source': source
                 }
                 
-                _logger.info(f"Valid image found: {image.width}x{image.height}, {len(image_data)} bytes, quality: {quality_score}")
+                _logger.info(f"Image found: {image.width}x{image.height}, {len(image_data)} bytes, quality: {quality_score}")
                 
                 return base64.b64encode(image_data).decode('utf-8'), image_info
                 

@@ -396,29 +396,9 @@ class ProductImageFetcher(models.TransientModel):
                 format_name = image.format.lower() if image.format else 'unknown'
                 
                 _logger.info(f"Image properties - Size: {width}x{height}, Format: {format_name}")
-                _logger.info(f"Min required size: {config.min_image_width}x{config.min_image_height}")
+                _logger.info(f"✅ No validation restrictions - accepting all valid images!")
                 
-                # Check minimum dimensions
-                if width < config.min_image_width or height < config.min_image_height:
-                    _logger.warning(f"❌ Image too small: {width}x{height} < {config.min_image_width}x{config.min_image_height}")
-                    return None, {}
-                
-                # Check format
-                _logger.info(f"Format check - Preferred: {config.preferred_formats}, Actual: {format_name}")
-                if config.preferred_formats != 'all':
-                    allowed_formats = []
-                    if config.preferred_formats in ['jpg', 'jpg_png']:
-                        allowed_formats.append('jpeg')
-                    if config.preferred_formats in ['png', 'jpg_png']:
-                        allowed_formats.append('png')
-                    
-                    _logger.info(f"Allowed formats: {allowed_formats}")
-                    
-                    if format_name not in allowed_formats:
-                        _logger.warning(f"❌ Format not allowed: {format_name} not in {allowed_formats}")
-                        return None, {}
-                
-                # Simple watermark detection (basic check for repeated patterns)
+                # Simple quality score calculation
                 quality_score = self._calculate_image_quality(image)
                 _logger.info(f"Quality score: {quality_score}")
                 

@@ -40,8 +40,8 @@ if config:
             <field name="use_amazon_api">False</field>
             <field name="use_google_images">True</field>
             <field name="use_bing_images">False</field>
-            <field name="min_image_width">800</field>
-            <field name="min_image_height">600</field>
+            <field name="min_image_width">200</field>
+            <field name="min_image_height">200</field>
             <field name="max_image_size_mb">5.0</field>
             <field name="preferred_formats">jpg_png</field>
             <field name="requests_per_minute">60</field>

@@ -255,6 +255,12 @@ class ProductImageFetcher(models.TransientModel):
         # Join and limit length
         search_query = ' '.join(keywords[:2])  # Use top 2 elements
         
+        # Add regional context for better Ecuador/Latin America results
+        if search_query and not any(term in search_query.lower() for term in ['ecuador', 'latina', 'tech', 'producto']):
+            # Don't add "Ecuador" to every search as it might be too restrictive
+            # The country parameters will handle geographic targeting
+            pass
+        
         # Limit total length to avoid overly complex queries
         if len(search_query) > 100:
             search_query = search_query[:100].rsplit(' ', 1)[0]  # Cut at word boundary
@@ -307,7 +313,9 @@ class ProductImageFetcher(models.TransientModel):
                 'searchType': 'image',
                 'imgSize': 'medium',  # Less restrictive than 'large'
                 'num': 5,  # Get more results to choose from
-                'safe': 'active'
+                'safe': 'active',
+                'gl': 'ec',  # Ecuador geolocation
+                'hl': 'es'   # Spanish language
             }
             
             session = self._get_session()
@@ -403,7 +411,9 @@ class ProductImageFetcher(models.TransientModel):
                 'searchType': 'image',
                 'imgSize': 'medium',
                 'num': 3,
-                'safe': 'active'
+                'safe': 'active',
+                'gl': 'ec',  # Ecuador geolocation
+                'hl': 'es'   # Spanish language
             }
             
             time.sleep(0.5)  # Shorter delay for fallback searches
@@ -457,7 +467,9 @@ class ProductImageFetcher(models.TransientModel):
                 'cx': config.google_search_engine_id,
                 'q': f"{search_keywords} product description specifications",
                 'num': 5,  # Get multiple results for better description
-                'safe': 'active'
+                'safe': 'active',
+                'gl': 'ec',  # Ecuador geolocation
+                'hl': 'es'   # Spanish language
             }
             
             session = self._get_session()

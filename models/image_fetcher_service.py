@@ -368,17 +368,26 @@ class ProductImageFetcher(models.TransientModel):
 
     def _download_and_validate_image(self, image_url, config, source):
         """Download image and validate quality requirements"""
+        _logger.info(f"🔍 Validating image: {image_url}")
         try:
             session = self._get_session()
             response = session.get(image_url, timeout=30, stream=True)
             response.raise_for_status()
             
+            _logger.info(f"✅ Download successful: {response.status_code}")
+            
             # Check file size
             content_length = response.headers.get('content-length')
-            if content_length and int(content_length) > config.max_image_size_mb * 1024 * 1024:
+            max_size_bytes = config.max_image_size_mb * 1024 * 1024
+            _logger.info(f"File size check - Content length: {content_length}, Max allowed: {max_size_bytes} bytes")
+            
+            if content_length and int(content_length) > max_size_bytes:
+                _logger.warning(f"❌ Image too large: {content_length} bytes > {max_size_bytes} bytes")
                 return None, {}
             
             image_data = response.content
+            actual_size = len(image_data)
+            _logger.info(f"Actual downloaded size: {actual_size} bytes ({actual_size/1024:.1f} KB)")
             
             # Validate image with PIL
             try:
@@ -386,11 +395,16 @@ class ProductImageFetcher(models.TransientModel):
                 width, height = image.size
                 format_name = image.format.lower() if image.format else 'unknown'
                 
+                _logger.info(f"Image properties - Size: {width}x{height}, Format: {format_name}")
+                _logger.info(f"Min required size: {config.min_image_width}x{config.min_image_height}")
+                
                 # Check minimum dimensions
                 if width < config.min_image_width or height < config.min_image_height:
+                    _logger.warning(f"❌ Image too small: {width}x{height} < {config.min_image_width}x{config.min_image_height}")
                     return None, {}
                 
                 # Check format
+                _logger.info(f"Format check - Preferred: {config.preferred_formats}, Actual: {format_name}")
                 if config.preferred_formats != 'all':
                     allowed_formats = []
                     if config.preferred_formats in ['jpg', 'jpg_png']:
@@ -398,11 +412,15 @@ class ProductImageFetcher(models.TransientModel):
                     if config.preferred_formats in ['png', 'jpg_png']:
                         allowed_formats.append('png')
                     
+                    _logger.info(f"Allowed formats: {allowed_formats}")
+                    
                     if format_name not in allowed_formats:
+                        _logger.warning(f"❌ Format not allowed: {format_name} not in {allowed_formats}")
                         return None, {}
                 
                 # Simple watermark detection (basic check for repeated patterns)
                 quality_score = self._calculate_image_quality(image)
+                _logger.info(f"Quality score: {quality_score}")
                 
                 image_info = {
                     'image_source': source,
@@ -413,14 +431,17 @@ class ProductImageFetcher(models.TransientModel):
                     'quality_score': quality_score
                 }
                 
+                _logger.info(f"✅ Image validation successful: {width}x{height} {format_name}")
                 return image_data, image_info
                 
             except Exception as e:
-                _logger.warning(f"Image validation failed: {str(e)}")
+                _logger.error(f"❌ PIL validation failed: {str(e)}")
                 return None, {}
             
         except Exception as e:
-            _logger.warning(f"Image download failed from {image_url}: {str(e)}")
+            _logger.error(f"❌ Image download failed from {image_url}: {str(e)}")
+            import traceback
+            _logger.error(f"Traceback: {traceback.format_exc()}")
             return None, {}
 
     def _calculate_image_quality(self, image):

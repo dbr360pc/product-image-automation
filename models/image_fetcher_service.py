@@ -24,36 +24,17 @@ class ProductImageFetcher(models.TransientModel):
     _description = 'Product Image Fetcher Service'
 
     def _get_session(self):
-        """Get a requests session with enhanced configuration"""
-        # Create a new session each time for TransientModel to avoid attribute persistence issues
+        """Get a requests session with basic configuration"""
         session = requests.Session()
         
-        # Set default headers to avoid blocks
+        # Set basic headers to avoid blocks but without automatic retries
         session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
             'Accept': '*/*',
             'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
             'DNT': '1',
-            'Connection': 'keep-alive',
-            'Cache-Control': 'no-cache'
+            'Connection': 'keep-alive'
         })
-        
-        # Configure retry strategy
-        from requests.adapters import HTTPAdapter
-        from urllib3.util.retry import Retry
-        
-        retry_strategy = Retry(
-            total=3,
-            status_forcelist=[403, 429, 500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "OPTIONS"],
-            backoff_factor=0.5,
-            respect_retry_after_header=True
-        )
-        
-        adapter = HTTPAdapter(max_retries=retry_strategy, pool_maxsize=10)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
         
         return session
 

@@ -1,6 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_product_image_config_admin,product.image.config admin,model_product_image_config,base.group_system,1,1,1,1
-access_product_image_config_user,product.image.config user,model_product_image_config,sales_team.group_sale_manager,1,1,1,0
-access_product_image_log_admin,product.image.log admin,model_product_image_log,base.group_system,1,1,1,1
-access_product_image_log_user,product.image.log user,model_product_image_log,sales_team.group_sale_salesman,1,0,0,0
-access_product_image_fetcher_admin,product.image.fetcher admin,model_product_image_fetcher,base.group_system,1,1,1,1
+access_product_image_config_all,product.image.config all,model_product_image_config,base.group_user,1,1,1,1
+access_product_image_log_all,product.image.log all,model_product_image_log,base.group_user,1,1,1,1
+access_product_image_fetcher_all,product.image.fetcher all,model_product_image_fetcher,base.group_user,1,1,1,1

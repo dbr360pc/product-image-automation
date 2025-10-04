@@ -44,9 +44,9 @@ if config:
             <field name="min_image_height">200</field>
             <field name="max_image_size_mb">5.0</field>
             <field name="preferred_formats">jpg_png</field>
-            <field name="requests_per_minute">60</field>
-            <field name="daily_requests_limit">1000</field>
-            <field name="batch_size">50</field>
+            <field name="requests_per_minute">20</field>
+            <field name="daily_requests_limit">500</field>
+            <field name="batch_size">10</field>
             <field name="enable_deduplication">True</field>
             <field name="skip_products_with_images">True</field>
             <field name="force_update_mode">False</field>

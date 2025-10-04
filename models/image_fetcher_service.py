@@ -30,6 +30,20 @@ class ProductImageFetcher(models.TransientModel):
         })
         return session
 
+    def _handle_rate_limit(self, response, operation="API call"):
+        """Handle rate limit errors with exponential backoff"""
+        if response.status_code == 429:
+            retry_after = response.headers.get('Retry-After')
+            if retry_after:
+                wait_time = int(retry_after)
+            else:
+                wait_time = 60  # Default 60 seconds
+            
+            _logger.warning(f"Rate limit hit for {operation}. Waiting {wait_time} seconds...")
+            time.sleep(wait_time)
+            return True
+        return False
+
     @api.model
     def run_daily_scan(self):
         """Main cron job entry point for daily scanning"""
@@ -142,9 +156,11 @@ class ProductImageFetcher(models.TransientModel):
                 try:
                     self._process_single_product(product, config, batch_id, job_type, force_update)
                     
-                    # Rate limiting
+                    # Rate limiting - be more conservative to avoid 429 errors
                     if config.requests_per_minute > 0:
-                        time.sleep(60.0 / config.requests_per_minute)
+                        # Add extra buffer to avoid rate limits
+                        delay = max(2.0, 60.0 / config.requests_per_minute)
+                        time.sleep(delay)
                         
                 except Exception as e:
                     _logger.error(f"Error processing product {product.id}: {str(e)}")
@@ -295,10 +311,17 @@ class ProductImageFetcher(models.TransientModel):
                 'safe': 'active'
             }
             
-
-            
             session = self._get_session()
+            
+            # Add delay before API call to respect rate limits
+            time.sleep(1)  # 1 second delay between calls
+            
             response = session.get(url, params=params, timeout=30)
+            
+            # Handle rate limiting
+            if self._handle_rate_limit(response, "Google Images API"):
+                # Retry after rate limit wait
+                response = session.get(url, params=params, timeout=30)
             
             if response.status_code == 200:
                 data = response.json()
@@ -345,7 +368,16 @@ class ProductImageFetcher(models.TransientModel):
             }
             
             session = self._get_session()
+            
+            # Add delay before API call to respect rate limits
+            time.sleep(1)  # 1 second delay between calls
+            
             response = session.get(url, params=params, timeout=30)
+            
+            # Handle rate limiting
+            if self._handle_rate_limit(response, "Google Description API"):
+                # Retry after rate limit wait
+                response = session.get(url, params=params, timeout=30)
             
             if response.status_code == 200:
                 data = response.json()

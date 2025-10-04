@@ -35,8 +35,12 @@ class ProductImageFetcher(models.TransientModel):
         """Main cron job entry point for daily scanning"""
         try:
             config = self.env['product.image.config'].get_active_config()
-            if not config.cron_active:
+            _logger.info(f"Daily scan - Config loaded: {bool(config)}")
+            if config and hasattr(config, 'cron_active') and not config.cron_active:
                 _logger.info("Daily scan disabled in configuration")
+                return
+            elif not config:
+                _logger.error("No active configuration found for daily scan")
                 return
             
             batch_id = f"daily_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -71,10 +75,16 @@ class ProductImageFetcher(models.TransientModel):
             config = self.env['product.image.config'].get_active_config()
             batch_id = f"backfill_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             _logger.info(f"Starting backfill job with batch ID: {batch_id}")
+            _logger.info(f"Config loaded: {bool(config)}")
+            
+            if not config:
+                _logger.error("No active configuration found for backfill job")
+                return
             
             # Get all products (or limit for testing)
             domain = [('active', '=', True)]
             if config.test_mode:
+                _logger.info(f"Test mode enabled - limiting to {config.test_product_limit} products")
                 products = self.env['product.template'].search(domain, limit=config.test_product_limit)
             else:
                 products = self.env['product.template'].search(domain)
@@ -144,8 +154,15 @@ class ProductImageFetcher(models.TransientModel):
         """Process a single product for image fetching"""
         start_time = time.time()
         
+        _logger.info(f"\n--- Processing Product: {product.name} (ID: {product.id}, SKU: {product.default_code}) ---")
+        _logger.info(f"Config - Google Images: {config.use_google_images}")
+        _logger.info(f"Config - Test Mode: {config.test_mode}")
+        _logger.info(f"Config - Skip with images: {config.skip_products_with_images}")
+        _logger.info(f"Force Update: {force_update}")
+        
         # Skip if product already has image and not forcing update
         if product.has_product_image() and not force_update and config.skip_products_with_images:
+            _logger.info(f"Product {product.id} already has image, skipping")
             self.env['product.image.log'].log_operation(
                 product.id, 'skip', 'info', 'Product already has image',
                 batch_id=batch_id, job_type=job_type, processing_time=time.time() - start_time
@@ -156,7 +173,11 @@ class ProductImageFetcher(models.TransientModel):
         search_keywords = product.get_search_keywords()
         identifiers = product.get_product_identifiers()
         
+        _logger.info(f"Search keywords: '{search_keywords}'")
+        _logger.info(f"Identifiers: {identifiers}")
+        
         if not search_keywords and not identifiers:
+            _logger.warning(f"No search terms or identifiers available for product {product.id}")
             self.env['product.image.log'].log_operation(
                 product.id, 'skip', 'warning', 'No search terms or identifiers available',
                 batch_id=batch_id, job_type=job_type, processing_time=time.time() - start_time
@@ -167,13 +188,21 @@ class ProductImageFetcher(models.TransientModel):
         image_data = None
         image_info = {}
         
-        if config.use_amazon_api and self._has_amazon_config(config):
+        _logger.info("Checking image source availability...")
+        _logger.info(f"Amazon API enabled: {config.use_amazon_api} | Has config: {self._has_amazon_config(config) if hasattr(config, 'use_amazon_api') else False}")
+        _logger.info(f"Google Images enabled: {config.use_google_images} | Has config: {self._has_google_config(config)}")
+        _logger.info(f"Bing Images enabled: {getattr(config, 'use_bing_images', False)} | Has config: {self._has_bing_config(config)}")
+        
+        if hasattr(config, 'use_amazon_api') and config.use_amazon_api and self._has_amazon_config(config):
+            _logger.info("Trying Amazon API...")
             image_data, image_info = self._fetch_from_amazon(product, identifiers, search_keywords, config)
         
         if not image_data and config.use_google_images and self._has_google_config(config):
+            _logger.info("Trying Google Images...")
             image_data, image_info = self._fetch_from_google(product, search_keywords, config)
         
-        if not image_data and config.use_bing_images and self._has_bing_config(config):
+        if not image_data and hasattr(config, 'use_bing_images') and config.use_bing_images and self._has_bing_config(config):
+            _logger.info("Trying Bing Images...")
             image_data, image_info = self._fetch_from_bing(product, search_keywords, config)
         
         if image_data:
@@ -225,8 +254,27 @@ class ProductImageFetcher(models.TransientModel):
         return None, {}
 
     def _fetch_from_google(self, product, search_keywords, config):
-        """Fetch image from Google Custom Search API"""
+        """Fetch image from Google Custom Search API with detailed logging"""
+        _logger.info(f"=== GOOGLE SEARCH DEBUG START ===")
+        _logger.info(f"Product: {product.name} (ID: {product.id})")
+        _logger.info(f"Search Keywords: '{search_keywords}'")
+        _logger.info(f"API Key (first 20): {config.google_api_key[:20] if config.google_api_key else 'NONE'}...")
+        _logger.info(f"Search Engine ID: {config.google_search_engine_id or 'NONE'}")
+        _logger.info(f"Use Google Images: {config.use_google_images}")
+        
         try:
+            if not config.use_google_images:
+                _logger.info("❌ Google images is disabled in config")
+                return None, {}
+                
+            if not config.google_api_key:
+                _logger.error("❌ Google API Key is missing!")
+                return None, {}
+                
+            if not config.google_search_engine_id:
+                _logger.error("❌ Google Search Engine ID is missing!")
+                return None, {}
+
             # Google Custom Search API
             url = "https://www.googleapis.com/customsearch/v1"
             params = {
@@ -240,22 +288,48 @@ class ProductImageFetcher(models.TransientModel):
                 'safe': 'active'
             }
             
+            _logger.info(f"Making request to: {url}")
+            _logger.info(f"Request params keys: {list(params.keys())}")
+            
             session = self._get_session()
             response = session.get(url, params=params, timeout=30)
             
+            _logger.info(f"Response status: {response.status_code}")
+            
             if response.status_code == 200:
                 data = response.json()
-                if 'items' in data:
-                    for item in data['items']:
+                items = data.get('items', [])
+                
+                _logger.info(f"✅ Google returned {len(items)} items")
+                
+                if items:
+                    for i, item in enumerate(items[:2]):
+                        _logger.info(f"Image {i+1}: {item.get('link', 'NO URL')}")
+                        _logger.info(f"Title {i+1}: {item.get('title', 'NO TITLE')}")
+                    
+                    # Try each image until we find a valid one
+                    for item in items:
                         image_url = item.get('link')
                         if image_url:
+                            _logger.info(f"Attempting to download: {image_url}")
                             result = self._download_and_validate_image(image_url, config, 'google')
                             if result[0]:  # If successful
+                                _logger.info(f"✅ Successfully downloaded and validated image")
                                 return result
+                            else:
+                                _logger.info(f"❌ Image validation failed for: {image_url}")
+                else:
+                    _logger.warning("No items found in Google response")
+            else:
+                _logger.error(f"❌ Google API Error: {response.status_code}")
+                _logger.error(f"Response: {response.text[:500]}")
             
         except Exception as e:
-            _logger.warning(f"Google fetch failed for product {product.id}: {str(e)}")
+            _logger.error(f"❌ Google fetch failed for product {product.id}: {str(e)}")
+            import traceback
+            _logger.error(f"Traceback: {traceback.format_exc()}")
         
+        _logger.info(f"=== GOOGLE SEARCH DEBUG END: No valid images found ===")
         return None, {}
 
     def _fetch_from_bing(self, product, search_keywords, config):
@@ -431,7 +505,7 @@ class ProductImageFetcher(models.TransientModel):
 
     def _has_google_config(self, config):
         """Check if Google API configuration is complete"""
-        return all([config.google_api_key, config.google_search_engine_id])
+        return all([config.use_google_images, config.google_api_key, config.google_search_engine_id])
 
     def _has_bing_config(self, config):
         """Check if Bing API configuration is complete"""

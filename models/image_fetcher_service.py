@@ -37,7 +37,7 @@ class ProductImageFetcher(models.TransientModel):
             if retry_after:
                 wait_time = int(retry_after)
             else:
-                wait_time = 60  # Default 60 seconds
+                wait_time = 20
             
             _logger.warning(f"Rate limit hit for {operation}. Waiting {wait_time} seconds...")
             time.sleep(wait_time)
@@ -126,13 +126,17 @@ class ProductImageFetcher(models.TransientModel):
         """Get products that need images or descriptions based on configuration"""
         domain = [('active', '=', True), ('image_auto_fetch_enabled', '=', True)]
         
-        # Products needing images OR descriptions
+        # Products needing images OR descriptions (including website descriptions)
         if config.skip_products_with_images and not config.force_update_mode:
-            domain.append('|')
-            domain.append(('image_1920', '=', False))
-            domain.append('|')
-            domain.append(('description', '=', False))
-            domain.append(('description', '=', ''))
+            domain.extend([
+                '|', '|', '|', '|', '|',
+                ('image_1920', '=', False),
+                ('description', '=', False),
+                ('description', '=', ''),
+                ('description_sale', '=', False),
+                ('description_sale', '=', ''),
+                '&', ('description_website', '!=', False), ('description_website', '=', '')
+            ])
         
         products = self.env['product.template'].search(domain)
         
@@ -179,7 +183,16 @@ class ProductImageFetcher(models.TransientModel):
         
         # Check what needs to be processed
         needs_image = not product.has_product_image() or force_update
-        needs_description = not product.description or product.description.strip() == ''
+        
+        # Check if any description field is missing
+        has_description = bool(product.description and product.description.strip())
+        has_description_sale = bool(product.description_sale and product.description_sale.strip())
+        has_description_website = bool(hasattr(product, 'description_website') and product.description_website and product.description_website.strip())
+        
+        _logger.info(f"Description status - Internal: {has_description}, Sale: {has_description_sale}, Website: {has_description_website}")
+        
+        needs_description = not (has_description and has_description_sale and has_description_website)
+        _logger.info(f"Product needs description: {needs_description}")
         
 
         
@@ -220,7 +233,11 @@ class ProductImageFetcher(models.TransientModel):
                     image_data, image_info = self._fetch_from_google(product, search_keywords, config)
                 
                 if needs_description:
+                    _logger.info(f"Fetching description for product {product.name} with keywords: '{search_keywords}'")
                     product_description = self._fetch_description_from_google(product, search_keywords, config)
+                    _logger.info(f"Description fetch result: {bool(product_description)} - Length: {len(product_description) if product_description else 0}")
+                    if product_description:
+                        _logger.info(f"Description preview: {product_description[:100]}...")
         
         # Save results
         success_messages = []
@@ -234,10 +251,50 @@ class ProductImageFetcher(models.TransientModel):
         
         if product_description and needs_description:
             if config.test_mode:
+                _logger.info(f"TEST MODE: Description found but not saved: {product_description[:100]}...")
                 success_messages.append("Description found (test mode - not saved)")
             else:
-                product.description = product_description
+                _logger.info(f"Saving description to product {product.id}: {product_description[:100]}...")
+                
+                # Save description to multiple fields for better visibility
+                old_desc = product.description
+                old_desc_sale = product.description_sale
+                old_desc_website = getattr(product, 'description_website', None)
+                
+                product.description = product_description  # Internal description
+                product.description_sale = product_description  # Sales description
+                if hasattr(product, 'description_website'):
+                    product.description_website = product_description  # Website description
+                    _logger.info(f"Set description_website field")
+                else:
+                    _logger.warning(f"Product {product.id} does not have description_website field")
+                
+                # Log what was changed
+                _logger.info(f"Description fields updated:")
+                _logger.info(f"  - description: '{old_desc}' -> '{product.description}'")
+                _logger.info(f"  - description_sale: '{old_desc_sale}' -> '{product.description_sale}'")
+                if hasattr(product, 'description_website'):
+                    _logger.info(f"  - description_website: '{old_desc_website}' -> '{product.description_website}'")
+                
+                # Ensure product is published to website if it has ecommerce module
+                if hasattr(product, 'is_published') and not product.is_published:
+                    _logger.info(f"Publishing product {product.id} to website")
+                    product.is_published = True
+                elif hasattr(product, 'is_published'):
+                    _logger.info(f"Product {product.id} already published: {product.is_published}")
+                else:
+                    _logger.info(f"Product {product.id} does not have is_published field")
+                    
                 success_messages.append("Description saved successfully")
+        elif product_description and not needs_description:
+            _logger.info(f"Description found but product already has descriptions, skipping save")
+        elif not product_description and needs_description:
+            _logger.warning(f"No description found for product {product.id} with keywords '{search_keywords}'")
+        
+        # Commit changes to ensure they're saved to database
+        if success_messages:
+            self.env.cr.commit()
+            _logger.info(f"Committed changes for product {product.id}: {'; '.join(success_messages)}")
         
         # Log results
         if success_messages:
@@ -351,10 +408,11 @@ class ProductImageFetcher(models.TransientModel):
 
     def _fetch_description_from_google(self, product, search_keywords, config):
         """Fetch product description from Google Custom Search API"""
+        _logger.info(f"=== DESCRIPTION FETCH START for product {product.id} ===")
         
         try:
             if not config.google_api_key or not config.google_search_engine_id:
-
+                _logger.error(f"Missing Google API credentials for description fetch")
                 return None
 
             # Google Custom Search API for web results (not images)
@@ -383,22 +441,33 @@ class ProductImageFetcher(models.TransientModel):
                 data = response.json()
                 items = data.get('items', [])
                 
-                _logger.info(f"Google returned {len(items)} web results for description")
+                _logger.info(f"Google API returned {len(items)} web results for description")
+                _logger.info(f"Response data keys: {list(data.keys())}")
                 
                 if items:
                     # Extract descriptions from search results
                     descriptions = []
+                    _logger.info(f"Processing {len(items[:3])} search results for descriptions:")
+                    
                     for i, item in enumerate(items[:3]):  # Use first 3 results
                         title = item.get('title', '')
                         snippet = item.get('snippet', '')
                         
+                        _logger.info(f"  Result {i+1}: Title='{title[:50]}...', Snippet='{snippet[:100]}...'")
+                        
                         if snippet and len(snippet.strip()) > 20:
                             descriptions.append(snippet.strip())
+                            _logger.info(f"    -> Added to descriptions (length: {len(snippet.strip())})")
+                        else:
+                            _logger.info(f"    -> Skipped (too short: {len(snippet.strip()) if snippet else 0} chars)")
+                    
+                    _logger.info(f"Total descriptions found: {len(descriptions)}")
                     
                     if descriptions:
                         # Combine and clean up the best description
+                        _logger.info(f"Creating product description from {len(descriptions)} snippets")
                         best_description = self._create_product_description(descriptions, product.name)
-                        _logger.info(f"Generated product description successfully")
+                        _logger.info(f"Generated description (length: {len(best_description) if best_description else 0}): {best_description[:100] if best_description else 'None'}...")
                         return best_description
                     else:
                         _logger.warning("No useful descriptions found in search results")
@@ -409,7 +478,10 @@ class ProductImageFetcher(models.TransientModel):
                 
         except Exception as e:
             _logger.error(f"Description fetch failed for product {product.id}: {str(e)}")
+            import traceback
+            _logger.error(f"Traceback: {traceback.format_exc()}")
         
+        _logger.info(f"=== DESCRIPTION FETCH END: No description found ===")
         return None
 
     def _create_product_description(self, descriptions, product_name):

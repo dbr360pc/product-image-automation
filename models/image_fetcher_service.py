@@ -126,16 +126,13 @@ class ProductImageFetcher(models.TransientModel):
         """Get products that need images or descriptions based on configuration"""
         domain = [('active', '=', True), ('image_auto_fetch_enabled', '=', True)]
         
-        # Products needing images OR descriptions (including website descriptions)
+        # Products needing images OR descriptions
         if config.skip_products_with_images and not config.force_update_mode:
             domain.extend([
-                '|', '|', '|', '|', '|',
+                '|', '|',
                 ('image_1920', '=', False),
                 ('description', '=', False),
-                ('description', '=', ''),
-                ('description_sale', '=', False),
-                ('description_sale', '=', ''),
-                '&', ('description_website', '!=', False), ('description_website', '=', '')
+                ('description', '=', '')
             ])
         
         products = self.env['product.template'].search(domain)
@@ -191,7 +188,9 @@ class ProductImageFetcher(models.TransientModel):
         
         _logger.info(f"Description status - Internal: {has_description}, Sale: {has_description_sale}, Website: {has_description_website}")
         
-        needs_description = not (has_description and has_description_sale and has_description_website)
+        # Only need description if at least one key field is missing
+        # Priority: If has internal description, consider it sufficient
+        needs_description = not has_description or (not has_description_sale and not has_description_website)
         _logger.info(f"Product needs description: {needs_description}")
         
 
@@ -256,24 +255,33 @@ class ProductImageFetcher(models.TransientModel):
             else:
                 _logger.info(f"Saving description to product {product.id}: {product_description[:100]}...")
                 
-                # Save description to multiple fields for better visibility
+                # Save description only to fields that are empty
                 old_desc = product.description
                 old_desc_sale = product.description_sale
                 old_desc_website = getattr(product, 'description_website', None)
                 
-                product.description = product_description  # Internal description
-                product.description_sale = product_description  # Sales description
-                if hasattr(product, 'description_website'):
+                # Only update empty fields
+                if not product.description or not product.description.strip():
+                    product.description = product_description  # Internal description
+                    _logger.info(f"Updated empty description field")
+                    
+                if not product.description_sale or not product.description_sale.strip():
+                    product.description_sale = product_description  # Sales description
+                    _logger.info(f"Updated empty description_sale field")
+                    
+                if hasattr(product, 'description_website') and (not product.description_website or not product.description_website.strip()):
                     product.description_website = product_description  # Website description
-                    _logger.info(f"Set description_website field")
-                else:
+                    _logger.info(f"Updated empty description_website field")
+                elif not hasattr(product, 'description_website'):
                     _logger.warning(f"Product {product.id} does not have description_website field")
                 
-                # Log what was changed
+                # Log what was changed (only if actually changed)
                 _logger.info(f"Description fields updated:")
-                _logger.info(f"  - description: '{old_desc}' -> '{product.description}'")
-                _logger.info(f"  - description_sale: '{old_desc_sale}' -> '{product.description_sale}'")
-                if hasattr(product, 'description_website'):
+                if old_desc != product.description:
+                    _logger.info(f"  - description: '{old_desc}' -> '{product.description}'")
+                if old_desc_sale != product.description_sale:
+                    _logger.info(f"  - description_sale: '{old_desc_sale}' -> '{product.description_sale}'")
+                if hasattr(product, 'description_website') and old_desc_website != product.description_website:
                     _logger.info(f"  - description_website: '{old_desc_website}' -> '{product.description_website}'")
                 
                 # Ensure product is published to website if it has ecommerce module

@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Product Image Log Form View -->
+    <record id="view_product_image_log_form" model="ir.ui.view">
+        <field name="name">product.image.log.form</field>
+        <field name="model">product.image.log</field>
+        <field name="arch" type="xml">
+            <form string="Image Processing Log" create="false" edit="false">
+                <header>
+                    <button name="action_retry_failed" string="Retry Failed" type="object"
+                           class="btn-primary" icon="fa-refresh"
+                           attrs="{'invisible': [('status', '!=', 'failed')]}"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="product_id"/>
+                            <field name="product_name"/>
+                            <field name="product_sku"/>
+                            <field name="product_ean"/>
+                        </group>
+                        <group>
+                            <field name="operation_type"/>
+                            <field name="status"/>
+                            <field name="job_type"/>
+                            <field name="batch_id"/>
+                        </group>
+                    </group>
+                    
+                    <group string="Image Information" 
+                           attrs="{'invisible': [('image_source', '=', False)]}">
+                        <group>
+                            <field name="image_source"/>
+                            <field name="image_url"/>
+                            <field name="image_size"/>
+                            <field name="image_format"/>
+                        </group>
+                        <group>
+                            <field name="file_size_kb"/>
+                            <field name="processing_time"/>
+                        </group>
+                    </group>
+                    
+                    <group string="Details">
+                        <field name="message" nolabel="1"/>
+                        <field name="error_details" nolabel="1"
+                               attrs="{'invisible': [('error_details', '=', False)]}"/>
+                    </group>
+                    
+                    <group>
+                        <field name="create_date"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Product Image Log Tree View -->
+    <record id="view_product_image_log_tree" model="ir.ui.view">
+        <field name="name">product.image.log.tree</field>
+        <field name="model">product.image.log</field>
+        <field name="arch" type="xml">
+            <tree string="Image Processing Logs" create="false" edit="false" 
+                  default_order="create_date desc">
+                <field name="create_date"/>
+                <field name="product_name"/>
+                <field name="product_sku"/>
+                <field name="operation_type"/>
+                <field name="status" decoration-success="status == 'success'"
+                       decoration-danger="status == 'failed'"
+                       decoration-warning="status == 'warning'"
+                       decoration-info="status == 'info'"/>
+                <field name="image_source"/>
+                <field name="job_type"/>
+                <field name="batch_id"/>
+                <field name="processing_time"/>
+                <field name="message"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Product Image Log Search View -->
+    <record id="view_product_image_log_search" model="ir.ui.view">
+        <field name="name">product.image.log.search</field>
+        <field name="model">product.image.log</field>
+        <field name="arch" type="xml">
+            <search string="Search Logs">
+                <field name="product_name"/>
+                <field name="product_sku"/>
+                <field name="batch_id"/>
+                <field name="message"/>
+                
+                <filter string="Success" name="success" 
+                        domain="[('status', '=', 'success')]"/>
+                <filter string="Failed" name="failed" 
+                        domain="[('status', '=', 'failed')]"/>
+                <filter string="Warnings" name="warnings" 
+                        domain="[('status', '=', 'warning')]"/>
+                
+                <separator/>
+                <filter string="Amazon" name="amazon" 
+                        domain="[('image_source', '=', 'amazon')]"/>
+                <filter string="Google" name="google" 
+                        domain="[('image_source', '=', 'google')]"/>
+                <filter string="Bing" name="bing" 
+                        domain="[('image_source', '=', 'bing')]"/>
+                
+                <separator/>
+                <filter string="Today" name="today" 
+                        domain="[('create_date', '>=', context_today().strftime('%Y-%m-%d'))]"/>
+                <filter string="This Week" name="this_week" 
+                        domain="[('create_date', '>=', (context_today()-datetime.timedelta(days=7)).strftime('%Y-%m-%d'))]"/>
+                
+                <group expand="0" string="Group By">
+                    <filter string="Status" name="group_status" context="{'group_by': 'status'}"/>
+                    <filter string="Operation Type" name="group_operation" context="{'group_by': 'operation_type'}"/>
+                    <filter string="Image Source" name="group_source" context="{'group_by': 'image_source'}"/>
+                    <filter string="Job Type" name="group_job" context="{'group_by': 'job_type'}"/>
+                    <filter string="Date" name="group_date" context="{'group_by': 'create_date:day'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Product Image Log Action -->
+    <record id="action_product_image_log" model="ir.actions.act_window">
+        <field name="name">Image Processing Logs</field>
+        <field name="res_model">product.image.log</field>
+        <field name="view_mode">tree,form</field>
+        <field name="context">{'search_default_today': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No image processing logs yet!
+            </p>
+            <p>
+                Run the daily automation or backfill job to see processing logs here.
+            </p>
+        </field>
+    </record>
+</odoo>

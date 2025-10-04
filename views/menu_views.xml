@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Main Menu for Product Image Automation -->
+    <menuitem id="menu_product_image_automation_root"
+              name="Image Automation"
+              parent="sale.sale_menu_root"
+              sequence="50"/>
+
+    <!-- Configuration Menu -->
+    <menuitem id="menu_product_image_config"
+              name="Configuration"
+              parent="menu_product_image_automation_root"
+              action="action_product_image_config"
+              sequence="10"/>
+
+    <!-- Logs Menu -->
+    <menuitem id="menu_product_image_logs"
+              name="Processing Logs"
+              parent="menu_product_image_automation_root"
+              action="action_product_image_log"
+              sequence="20"/>
+
+    <!-- Products Needing Images Menu -->
+    <menuitem id="menu_products_needing_images"
+              name="Products Needing Images"
+              parent="menu_product_image_automation_root"
+              action="action_products_needing_images"
+              sequence="30"/>
+
+    <!-- Settings Menu Item -->
+    <menuitem id="menu_product_image_settings"
+              name="Image Automation"
+              parent="base.menu_administration"
+              action="action_product_image_config"
+              sequence="100"/>
+</odoo>

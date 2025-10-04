@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Product Template Form View Extension -->
+    <record id="view_product_template_form_inherit" model="ir.ui.view">
+        <field name="name">product.template.form.inherit</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_form_view"/>
+        <field name="arch" type="xml">
+            <!-- Add image automation fields to the General Information tab -->
+            <xpath expr="//field[@name='barcode']" position="after">
+                <field name="upc_code"/>
+                <field name="manufacturer_part_number"/>
+            </xpath>
+            
+            <!-- Add image automation group -->
+            <xpath expr="//page[@name='general_information']//group[last()]" position="after">
+                <group string="Image Automation" name="image_automation">
+                    <field name="image_auto_fetch_enabled"/>
+                    <field name="image_last_fetch_date" readonly="1"/>
+                    <field name="image_fetch_attempts" readonly="1"/>
+                    <field name="image_fetch_source" readonly="1"/>
+                    <field name="image_quality_score" readonly="1"/>
+                </group>
+            </xpath>
+            
+            <!-- Add action button to header -->
+            <xpath expr="//header" position="inside">
+                <button name="action_fetch_images_manual" string="Fetch Images" type="object"
+                       class="btn-secondary" icon="fa-download"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Product Template Tree View Extension -->
+    <record id="view_product_template_tree_inherit" model="ir.ui.view">
+        <field name="name">product.template.tree.inherit</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_tree_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='list_price']" position="after">
+                <field name="image_auto_fetch_enabled" optional="hide"/>
+                <field name="image_last_fetch_date" optional="hide"/>
+                <field name="image_fetch_source" optional="hide"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Product Template Search View Extension -->
+    <record id="view_product_template_search_inherit" model="ir.ui.view">
+        <field name="name">product.template.search.inherit</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_search_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='barcode']" position="after">
+                <field name="upc_code"/>
+                <field name="manufacturer_part_number"/>
+            </xpath>
+            
+            <xpath expr="//filter[@name='consumable']" position="after">
+                <separator/>
+                <filter string="Auto-fetch Enabled" name="auto_fetch_enabled"
+                        domain="[('image_auto_fetch_enabled', '=', True)]"/>
+                <filter string="Has Images" name="has_images"
+                        domain="[('image_1920', '!=', False)]"/>
+                <filter string="No Images" name="no_images"
+                        domain="[('image_1920', '=', False)]"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Action for Products Needing Images -->
+    <record id="action_products_needing_images" model="ir.actions.act_window">
+        <field name="name">Products Needing Images</field>
+        <field name="res_model">product.template</field>
+        <field name="view_mode">tree,form</field>
+        <field name="domain">[('image_1920', '=', False), ('active', '=', True)]</field>
+        <field name="context">{'search_default_no_images': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                All products have images!
+            </p>
+            <p>
+                This view shows products that don't have images yet.
+            </p>
+        </field>
+    </record>
+</odoo>

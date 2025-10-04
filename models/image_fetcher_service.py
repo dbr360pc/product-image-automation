@@ -212,9 +212,9 @@ class ProductImageFetcher(models.TransientModel):
         if image_data:
             self._save_product_image(product, image_data, image_info, config, batch_id, job_type, start_time)
         else:
-            # Log no image found
+            # Log no image found as info (not a failure, just no results available)
             self.env['product.image.log'].log_operation(
-                product.id, 'fetch', 'failed', 'No suitable image found from any source',
+                product.id, 'fetch', 'info', 'No suitable image found from any source',
                 batch_id=batch_id, job_type=job_type, processing_time=time.time() - start_time
             )
         
@@ -354,8 +354,12 @@ class ProductImageFetcher(models.TransientModel):
                                 })
                                 return image_data, image_info
                 else:
-                    # No results found, try fallback searches
+                    # No results found, log as info and try fallback searches
                     _logger.info("No results with original search, trying fallback strategies...")
+                    # Log the info about no original results
+                    self.env['product.image.log'].log_operation(
+                        product.id, 'fetch', 'info', 'No results with original search, trying fallback strategies'
+                    )
                     return self._try_fallback_searches(product, config, session, url, current_api_key)
                 
             else:

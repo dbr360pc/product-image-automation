@@ -26,30 +26,12 @@
                     <notebook>
                         <!-- Image Sources Tab -->
                         <page string="Image Sources" name="sources">
-                            <group string="Amazon Product Advertising API">
-                                <field name="use_amazon_api"/>
-                                <field name="amazon_access_key" password="True" 
-                                       attrs="{'invisible': [('use_amazon_api', '=', False)]}"/>
-                                <field name="amazon_secret_key" password="True"
-                                       attrs="{'invisible': [('use_amazon_api', '=', False)]}"/>
-                                <field name="amazon_partner_tag"
-                                       attrs="{'invisible': [('use_amazon_api', '=', False)]}"/>
-                                <field name="amazon_marketplace"
-                                       attrs="{'invisible': [('use_amazon_api', '=', False)]}"/>
-                            </group>
-                            
-                            <group string="Google Images Fallback">
+                            <group string="Google Custom Search API">
                                 <field name="use_google_images"/>
                                 <field name="google_api_key" password="True"
                                        attrs="{'invisible': [('use_google_images', '=', False)]}"/>
                                 <field name="google_search_engine_id"
                                        attrs="{'invisible': [('use_google_images', '=', False)]}"/>
-                            </group>
-                            
-                            <group string="Bing Images Fallback">
-                                <field name="use_bing_images"/>
-                                <field name="bing_api_key" password="True"
-                                       attrs="{'invisible': [('use_bing_images', '=', False)]}"/>
                             </group>
                         </page>
                         
@@ -119,9 +101,7 @@
             <tree string="Image Configurations">
                 <field name="name"/>
                 <field name="active"/>
-                <field name="use_amazon_api"/>
                 <field name="use_google_images"/>
-                <field name="use_bing_images"/>
                 <field name="cron_active"/>
                 <field name="test_mode"/>
             </tree>

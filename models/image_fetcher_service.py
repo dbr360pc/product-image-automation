@@ -109,11 +109,16 @@ class ProductImageFetcher(models.TransientModel):
         self._process_products_in_batches(products, config, batch_id, job_type, force_update)
 
     def _get_products_needing_images(self, config):
-        """Get products that need images based on configuration"""
+        """Get products that need images or descriptions based on configuration"""
         domain = [('active', '=', True), ('image_auto_fetch_enabled', '=', True)]
         
+        # Products needing images OR descriptions
         if config.skip_products_with_images and not config.force_update_mode:
+            domain.append('|')
             domain.append(('image_1920', '=', False))
+            domain.append('|')
+            domain.append(('description', '=', False))
+            domain.append(('description', '=', ''))
         
         products = self.env['product.template'].search(domain)
         
@@ -151,20 +156,21 @@ class ProductImageFetcher(models.TransientModel):
             self.env.cr.commit()  # Commit after each batch
 
     def _process_single_product(self, product, config, batch_id, job_type, force_update=False):
-        """Process a single product for image fetching"""
+        """Process a single product for image and description fetching"""
         start_time = time.time()
         
-        _logger.info(f"\n--- Processing Product: {product.name} (ID: {product.id}, SKU: {product.default_code}) ---")
-        _logger.info(f"Config - Google Images: {config.use_google_images}")
-        _logger.info(f"Config - Test Mode: {config.test_mode}")
-        _logger.info(f"Config - Skip with images: {config.skip_products_with_images}")
-        _logger.info(f"Force Update: {force_update}")
+        _logger.info(f"Processing Product: {product.name} (ID: {product.id})")
         
-        # Skip if product already has image and not forcing update
-        if product.has_product_image() and not force_update and config.skip_products_with_images:
-            _logger.info(f"Product {product.id} already has image, skipping")
+        # Check what needs to be processed
+        needs_image = not product.has_product_image() or force_update
+        needs_description = not product.description or product.description.strip() == ''
+        
+
+        
+        if not needs_image and not needs_description:
+            _logger.info(f"Product {product.id} already has image and description, skipping")
             self.env['product.image.log'].log_operation(
-                product.id, 'skip', 'info', 'Product already has image',
+                product.id, 'skip', 'info', 'Product already has image and description',
                 batch_id=batch_id, job_type=job_type, processing_time=time.time() - start_time
             )
             return
@@ -173,8 +179,7 @@ class ProductImageFetcher(models.TransientModel):
         search_keywords = product.get_search_keywords()
         identifiers = product.get_product_identifiers()
         
-        _logger.info(f"Search keywords: '{search_keywords}'")
-        _logger.info(f"Identifiers: {identifiers}")
+
         
         if not search_keywords and not identifiers:
             _logger.warning(f"No search terms or identifiers available for product {product.id}")
@@ -184,40 +189,57 @@ class ProductImageFetcher(models.TransientModel):
             )
             return
         
-        # Try different image sources in order
+        # Process images and descriptions
         image_data = None
         image_info = {}
+        product_description = None
         
-        _logger.info("Checking image source availability...")
-        _logger.info(f"Amazon API enabled: {config.use_amazon_api} | Has config: {self._has_amazon_config(config) if hasattr(config, 'use_amazon_api') else False}")
-        _logger.info(f"Google Images enabled: {config.use_google_images} | Has config: {self._has_google_config(config)}")
-        _logger.info(f"Bing Images enabled: {getattr(config, 'use_bing_images', False)} | Has config: {self._has_bing_config(config)}")
+        if needs_image or needs_description:
+
+            
+            if config.use_google_images and self._has_google_config(config):
+
+                
+                if needs_image:
+                    image_data, image_info = self._fetch_from_google(product, search_keywords, config)
+                
+                if needs_description:
+                    product_description = self._fetch_description_from_google(product, search_keywords, config)
         
-        if hasattr(config, 'use_amazon_api') and config.use_amazon_api and self._has_amazon_config(config):
-            _logger.info("Trying Amazon API...")
-            image_data, image_info = self._fetch_from_amazon(product, identifiers, search_keywords, config)
+        # Save results
+        success_messages = []
         
-        if not image_data and config.use_google_images and self._has_google_config(config):
-            _logger.info("Trying Google Images...")
-            image_data, image_info = self._fetch_from_google(product, search_keywords, config)
-        
-        if not image_data and hasattr(config, 'use_bing_images') and config.use_bing_images and self._has_bing_config(config):
-            _logger.info("Trying Bing Images...")
-            image_data, image_info = self._fetch_from_bing(product, search_keywords, config)
-        
-        if image_data:
+        if image_data and needs_image:
             if config.test_mode:
-                self.env['product.image.log'].log_operation(
-                    product.id, 'fetch', 'success', 'Image found (test mode - not saved)',
-                    batch_id=batch_id, job_type=job_type, processing_time=time.time() - start_time,
-                    **image_info
-                )
+                success_messages.append("Image found (test mode - not saved)")
             else:
                 self._save_product_image(product, image_data, image_info, config, batch_id, job_type, start_time)
+                success_messages.append("Image saved successfully")
+        
+        if product_description and needs_description:
+            if config.test_mode:
+                success_messages.append("Description found (test mode - not saved)")
+            else:
+                product.description = product_description
+                success_messages.append("Description saved successfully")
+        
+        # Log results
+        if success_messages:
+            self.env['product.image.log'].log_operation(
+                product.id, 'fetch', 'success', '; '.join(success_messages),
+                batch_id=batch_id, job_type=job_type, processing_time=time.time() - start_time,
+                **image_info
+            )
         else:
+            failure_reasons = []
+            if needs_image and not image_data:
+                failure_reasons.append("No suitable image found")
+            if needs_description and not product_description:
+                failure_reasons.append("No description found")
+            
             product.image_fetch_attempts += 1
             self.env['product.image.log'].log_operation(
-                product.id, 'fetch', 'failed', 'No suitable image found from any source',
+                product.id, 'fetch', 'failed', '; '.join(failure_reasons),
                 batch_id=batch_id, job_type=job_type, processing_time=time.time() - start_time
             )
 
@@ -254,25 +276,10 @@ class ProductImageFetcher(models.TransientModel):
         return None, {}
 
     def _fetch_from_google(self, product, search_keywords, config):
-        """Fetch image from Google Custom Search API with detailed logging"""
-        _logger.info(f"=== GOOGLE SEARCH DEBUG START ===")
-        _logger.info(f"Product: {product.name} (ID: {product.id})")
-        _logger.info(f"Search Keywords: '{search_keywords}'")
-        _logger.info(f"API Key (first 20): {config.google_api_key[:20] if config.google_api_key else 'NONE'}...")
-        _logger.info(f"Search Engine ID: {config.google_search_engine_id or 'NONE'}")
-        _logger.info(f"Use Google Images: {config.use_google_images}")
+        """Fetch image from Google Custom Search API"""
         
         try:
-            if not config.use_google_images:
-                _logger.info("❌ Google images is disabled in config")
-                return None, {}
-                
-            if not config.google_api_key:
-                _logger.error("❌ Google API Key is missing!")
-                return None, {}
-                
-            if not config.google_search_engine_id:
-                _logger.error("❌ Google Search Engine ID is missing!")
+            if not config.use_google_images or not config.google_api_key or not config.google_search_engine_id:
                 return None, {}
 
             # Google Custom Search API
@@ -288,49 +295,126 @@ class ProductImageFetcher(models.TransientModel):
                 'safe': 'active'
             }
             
-            _logger.info(f"Making request to: {url}")
-            _logger.info(f"Request params keys: {list(params.keys())}")
+
             
             session = self._get_session()
             response = session.get(url, params=params, timeout=30)
-            
-            _logger.info(f"Response status: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
                 items = data.get('items', [])
                 
-                _logger.info(f"✅ Google returned {len(items)} items")
+                _logger.info(f"Google returned {len(items)} image results")
                 
                 if items:
-                    for i, item in enumerate(items[:2]):
-                        _logger.info(f"Image {i+1}: {item.get('link', 'NO URL')}")
-                        _logger.info(f"Title {i+1}: {item.get('title', 'NO TITLE')}")
                     
                     # Try each image until we find a valid one
                     for item in items:
                         image_url = item.get('link')
                         if image_url:
-                            _logger.info(f"Attempting to download: {image_url}")
                             result = self._download_and_validate_image(image_url, config, 'google')
                             if result[0]:  # If successful
-                                _logger.info(f"✅ Successfully downloaded and validated image")
+                                _logger.info(f"Successfully downloaded image from Google")
                                 return result
-                            else:
-                                _logger.info(f"❌ Image validation failed for: {image_url}")
                 else:
                     _logger.warning("No items found in Google response")
             else:
-                _logger.error(f"❌ Google API Error: {response.status_code}")
-                _logger.error(f"Response: {response.text[:500]}")
+                _logger.error(f"Google API Error: {response.status_code}")
             
         except Exception as e:
-            _logger.error(f"❌ Google fetch failed for product {product.id}: {str(e)}")
-            import traceback
-            _logger.error(f"Traceback: {traceback.format_exc()}")
+            _logger.error(f"Google fetch failed for product {product.id}: {str(e)}")
         
-        _logger.info(f"=== GOOGLE SEARCH DEBUG END: No valid images found ===")
         return None, {}
+
+    def _fetch_description_from_google(self, product, search_keywords, config):
+        """Fetch product description from Google Custom Search API"""
+        
+        try:
+            if not config.google_api_key or not config.google_search_engine_id:
+
+                return None
+
+            # Google Custom Search API for web results (not images)
+            url = "https://www.googleapis.com/customsearch/v1"
+            params = {
+                'key': config.google_api_key,
+                'cx': config.google_search_engine_id,
+                'q': search_keywords,
+                'num': 5,  # Get multiple results
+                'safe': 'active'
+            }
+            
+            session = self._get_session()
+            response = session.get(url, params=params, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                items = data.get('items', [])
+                
+                _logger.info(f"Google returned {len(items)} web results for description")
+                
+                if items:
+                    # Extract descriptions from search results
+                    descriptions = []
+                    for i, item in enumerate(items[:3]):  # Use first 3 results
+                        title = item.get('title', '')
+                        snippet = item.get('snippet', '')
+                        
+                        if snippet and len(snippet.strip()) > 20:
+                            descriptions.append(snippet.strip())
+                    
+                    if descriptions:
+                        # Combine and clean up the best description
+                        best_description = self._create_product_description(descriptions, product.name)
+                        _logger.info(f"Generated product description successfully")
+                        return best_description
+                    else:
+                        _logger.warning("No useful descriptions found in search results")
+                else:
+                    _logger.warning("No web results found for description")
+            else:
+                _logger.error(f"Google API Error for description: {response.status_code}")
+                
+        except Exception as e:
+            _logger.error(f"Description fetch failed for product {product.id}: {str(e)}")
+        
+        return None
+
+    def _create_product_description(self, descriptions, product_name):
+        """Create a clean product description from search results"""
+        if not descriptions:
+            return None
+            
+        # Use the longest, most descriptive snippet
+        best_desc = max(descriptions, key=len)
+        
+        # Clean up the description
+        # Remove common unwanted phrases
+        unwanted_phrases = [
+            'Buy online', 'Free shipping', 'Best price', 'Click here',
+            'Add to cart', 'In stock', 'Out of stock', 'Sale price',
+            'www.', 'http:', 'https:', '€', '$', '£', '...',
+            'Read more', 'See more', 'View details'
+        ]
+        
+        cleaned_desc = best_desc
+        for phrase in unwanted_phrases:
+            cleaned_desc = cleaned_desc.replace(phrase, '')
+        
+        # Clean up extra spaces and punctuation
+        import re
+        cleaned_desc = re.sub(r'\s+', ' ', cleaned_desc).strip()
+        cleaned_desc = re.sub(r'[.]{2,}', '.', cleaned_desc)
+        
+        # Ensure it ends with proper punctuation
+        if cleaned_desc and not cleaned_desc.endswith(('.', '!', '?')):
+            cleaned_desc += '.'
+            
+        # Limit length (Odoo description field limit)
+        if len(cleaned_desc) > 500:
+            cleaned_desc = cleaned_desc[:497] + '...'
+            
+        return cleaned_desc
 
     def _fetch_from_bing(self, product, search_keywords, config):
         """Fetch image from Bing Image Search API"""
@@ -368,13 +452,13 @@ class ProductImageFetcher(models.TransientModel):
 
     def _download_and_validate_image(self, image_url, config, source):
         """Download image and validate quality requirements"""
-        _logger.info(f"🔍 Validating image: {image_url}")
+
         try:
             session = self._get_session()
             response = session.get(image_url, timeout=30, stream=True)
             response.raise_for_status()
             
-            _logger.info(f"✅ Download successful: {response.status_code}")
+
             
             # Check file size
             content_length = response.headers.get('content-length')
@@ -382,12 +466,9 @@ class ProductImageFetcher(models.TransientModel):
             _logger.info(f"File size check - Content length: {content_length}, Max allowed: {max_size_bytes} bytes")
             
             if content_length and int(content_length) > max_size_bytes:
-                _logger.warning(f"❌ Image too large: {content_length} bytes > {max_size_bytes} bytes")
                 return None, {}
             
             image_data = response.content
-            actual_size = len(image_data)
-            _logger.info(f"Actual downloaded size: {actual_size} bytes ({actual_size/1024:.1f} KB)")
             
             # Validate image with PIL
             try:
@@ -395,12 +476,8 @@ class ProductImageFetcher(models.TransientModel):
                 width, height = image.size
                 format_name = image.format.lower() if image.format else 'unknown'
                 
-                _logger.info(f"Image properties - Size: {width}x{height}, Format: {format_name}")
-                _logger.info(f"✅ No validation restrictions - accepting all valid images!")
-                
                 # Simple quality score calculation
                 quality_score = self._calculate_image_quality(image)
-                _logger.info(f"Quality score: {quality_score}")
                 
                 image_info = {
                     'image_source': source,
@@ -411,17 +488,15 @@ class ProductImageFetcher(models.TransientModel):
                     'quality_score': quality_score
                 }
                 
-                _logger.info(f"✅ Image validation successful: {width}x{height} {format_name}")
+                _logger.info(f"Image validation successful: {width}x{height} {format_name}")
                 return image_data, image_info
                 
             except Exception as e:
-                _logger.error(f"❌ PIL validation failed: {str(e)}")
+                _logger.error(f"PIL validation failed: {str(e)}")
                 return None, {}
             
         except Exception as e:
-            _logger.error(f"❌ Image download failed from {image_url}: {str(e)}")
-            import traceback
-            _logger.error(f"Traceback: {traceback.format_exc()}")
+            _logger.error(f"Image download failed from {image_url}: {str(e)}")
             return None, {}
 
     def _calculate_image_quality(self, image):

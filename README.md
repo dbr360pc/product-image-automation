@@ -38,7 +38,7 @@ Go to **Sales → Image Automation → Configuration** or **Settings → Image A
 
 1. **Enable Image Sources**: Configure at least one image source:
    - **Amazon PA-API**: Requires Access Key, Secret Key, and Partner Tag
-   - **Google Images**: Requires API Key and Custom Search Engine ID  
+   - **Google Images**: Requires multiple API Keys (one per line) and Custom Search Engine ID  
    - **Bing Images**: Requires Subscription Key
 
 2. **Quality Settings**: 
@@ -66,10 +66,27 @@ Go to **Sales → Image Automation → Configuration** or **Settings → Image A
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Enable the Custom Search API
-3. Create API credentials (API Key)
+3. Create API credentials (API Key) - **Create multiple keys for higher limits**
 4. Set up a Custom Search Engine at [Google CSE](https://cse.google.com/)
 5. Configure it to search for images
 6. Get the Search Engine ID
+
+**Multiple API Keys (Recommended):**
+- Each Google API key has a daily limit (100 queries free, 10,000 paid)
+- You can configure unlimited API keys (one per line) for automatic rotation
+- When one key hits the rate limit, the system automatically switches to the next
+- This multiplies your effective daily quota by the number of keys
+- Format: Enter each API key on a separate line in the text field
+- Comments: Lines starting with # are ignored as comments
+
+**Example API Keys Configuration:**
+```
+AIzaSyC4567890abcdef1234567890ABCDEF123
+AIzaSyD4567890abcdef1234567890ABCDEF124
+AIzaSyE4567890abcdef1234567890ABCDEF125
+# This is a comment - backup key for later
+# AIzaSyF4567890abcdef1234567890ABCDEF126
+```
 
 #### Bing Image Search API
 
@@ -171,7 +188,8 @@ For large catalogs:
 ### Typical Limits
 
 - **Amazon PA-API**: 1 request per second, 8640 requests per day (free tier)
-- **Google Custom Search**: 100 queries per day (free tier), paid plans available
+- **Google Custom Search**: 100 queries per day per API key (free tier), paid plans available
+  - With multiple API keys: 100 × number of keys per day
 - **Bing Image Search**: Varies by subscription level
 
 ### Best Practices

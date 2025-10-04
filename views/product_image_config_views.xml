@@ -12,6 +12,12 @@
                     <button name="action_run_backfill" string="Run Backfill Job" type="object" 
                            class="btn-secondary" icon="fa-refresh"
                            confirm="This will process all products. Continue?"/>
+                    <button name="action_rotate_api_key" string="Rotate API Key" type="object" 
+                           class="btn-secondary" icon="fa-sync-alt"
+                           attrs="{'invisible': [('use_google_images', '=', False)]}"/>
+                    <button name="action_reset_api_key_rotation" string="Reset to Key #1" type="object" 
+                           class="btn-secondary" icon="fa-undo"
+                           attrs="{'invisible': [('use_google_images', '=', False)]}"/>
                 </header>
                 <sheet>
                     <div class="oe_title">
@@ -28,10 +34,22 @@
                         <page string="Image Sources" name="sources">
                             <group string="Google Custom Search API">
                                 <field name="use_google_images"/>
-                                <field name="google_api_key" password="True"
-                                       attrs="{'invisible': [('use_google_images', '=', False)]}"/>
                                 <field name="google_search_engine_id"
                                        attrs="{'invisible': [('use_google_images', '=', False)]}"/>
+                            </group>
+                            
+                            <group string="Google API Keys (Multiple Keys for Higher Limits)" 
+                                   attrs="{'invisible': [('use_google_images', '=', False)]}">
+                                <field name="google_api_keys" 
+                                       string="API Keys (one per line)" 
+                                       placeholder="Enter multiple Google API keys, one per line:&#10;AIzaSyC4567890abcdef1234567890ABCDEF123&#10;AIzaSyD4567890abcdef1234567890ABCDEF124&#10;AIzaSyE4567890abcdef1234567890ABCDEF125&#10;&#10;# Lines starting with # are ignored as comments"
+                                       attrs="{'required': [('use_google_images', '=', True)]}"
+                                       widget="text" 
+                                       rows="5"/>
+                                <field name="api_keys_count" readonly="1" 
+                                       string="Available Keys Count"/>
+                                <field name="current_api_key_index" readonly="1" 
+                                       string="Currently Using Key #"/>
                             </group>
                         </page>
                         

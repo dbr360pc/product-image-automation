@@ -1,4 +1,5 @@
-from odoo import api, fields, models
+from odoo import api, fields, models, _
+from odoo.exceptions import ValidationError
 
 
 class ProductImageConfig(models.Model):
@@ -26,8 +27,10 @@ class ProductImageConfig(models.Model):
     ], default='US', string='Amazon Marketplace')
     
     use_google_images = fields.Boolean('Use Google Images Fallback', default=True)
-    google_api_key = fields.Char('Google API Key')
+    google_api_keys = fields.Text('Google API Keys', help='Enter multiple API keys, one per line')
     google_search_engine_id = fields.Char('Google Search Engine ID')
+    current_api_key_index = fields.Integer('Current API Key Index', default=0)
+    api_keys_count = fields.Integer('Number of Available Keys', compute='_compute_api_keys_count', store=False)
     
     use_bing_images = fields.Boolean('Use Bing Images Fallback', default=False)
     bing_api_key = fields.Char('Bing API Key')
@@ -78,6 +81,100 @@ class ProductImageConfig(models.Model):
             })
         return config
     
+    @api.depends('google_api_keys')
+    def _compute_api_keys_count(self):
+        """Compute the number of available API keys"""
+        for record in self:
+            record.api_keys_count = len(record.get_available_google_api_keys())
+    
+    def migrate_legacy_api_keys(self):
+        """Helper method to migrate from old 3-field structure to new dynamic structure"""
+        self.ensure_one()
+        if self.google_api_keys:
+            return  # Already using new structure
+        
+        # Check if we have old field values (this would only work if fields still exist)
+        legacy_keys = []
+        for field_name in ['google_api_key', 'google_api_key_2', 'google_api_key_3']:
+            if hasattr(self, field_name):
+                value = getattr(self, field_name, None)
+                if value:
+                    legacy_keys.append(value)
+        
+        if legacy_keys:
+            self.google_api_keys = '\n'.join(legacy_keys)
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'message': f'Migrated {len(legacy_keys)} API keys to new format',
+                    'type': 'success',
+                    'sticky': False,
+                }
+            }
+    
+    @api.constrains('google_api_keys')
+    def _check_google_api_keys_format(self):
+        """Validate Google API keys format"""
+        for record in self:
+            if not record.google_api_keys or not record.use_google_images:
+                continue
+            
+            keys = record.get_available_google_api_keys()
+            if not keys:
+                raise ValidationError(_("At least one valid Google API key is required when Google Images is enabled."))
+            
+            # Basic validation for Google API key format
+            for key in keys:
+                if not key.startswith('AIza') or len(key) < 35:
+                    raise ValidationError(_("Invalid Google API key format: '%s'. Google API keys should start with 'AIza' and be at least 35 characters long.") % key[:20] + "...")
+    
+    def get_available_google_api_keys(self):
+        """Get list of available Google API keys"""
+        if not self.google_api_keys:
+            return []
+        
+        # Parse keys from text field (one per line)
+        keys = []
+        for line in self.google_api_keys.strip().split('\n'):
+            key = line.strip()
+            if key and not key.startswith('#'):  # Skip empty lines and comments
+                keys.append(key)
+        return keys
+    
+    def get_current_google_api_key(self):
+        """Get the current Google API key for use"""
+        keys = self.get_available_google_api_keys()
+        if not keys:
+            return None
+        
+        # Ensure index is within bounds
+        if self.current_api_key_index >= len(keys):
+            self.current_api_key_index = 0
+        
+        return keys[self.current_api_key_index]
+    
+    def rotate_google_api_key(self, reason="Rate limit"):
+        """Rotate to the next available Google API key"""
+        keys = self.get_available_google_api_keys()
+        if len(keys) <= 1:
+            return False  # No other keys available
+        
+        old_index = self.current_api_key_index
+        self.current_api_key_index = (self.current_api_key_index + 1) % len(keys)
+        
+        # Log the rotation
+        import logging
+        _logger = logging.getLogger(__name__)
+        _logger.info(f"API Key Rotation - Reason: {reason}, Index: {old_index} -> {self.current_api_key_index}, "
+                    f"Key: ...{keys[self.current_api_key_index][-8:] if keys[self.current_api_key_index] else 'None'}")
+        
+        return True
+    
+    def reset_api_key_rotation(self):
+        """Reset API key rotation to first key"""
+        self.current_api_key_index = 0
+    
     def action_test_configuration(self):
         """Test the configuration by fetching a sample image"""
         self.ensure_one()
@@ -103,6 +200,46 @@ class ProductImageConfig(models.Model):
             'params': {
                 'message': 'Backfill job started. Check logs for progress.',
                 'type': 'info',
+                'sticky': False,
+            }
+        }
+    
+    def action_rotate_api_key(self):
+        """Manually rotate to next Google API key"""
+        self.ensure_one()
+        if self.rotate_google_api_key("Manual rotation"):
+            keys_count = len(self.get_available_google_api_keys())
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'message': f'Rotated to API Key #{self.current_api_key_index + 1} of {keys_count}',
+                    'type': 'success',
+                    'sticky': False,
+                }
+            }
+        else:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'message': 'No additional API keys available for rotation',
+                    'type': 'warning',
+                    'sticky': False,
+                }
+            }
+    
+    def action_reset_api_key_rotation(self):
+        """Reset API key rotation to first key"""
+        self.ensure_one()
+        self.reset_api_key_rotation()
+        keys_count = len(self.get_available_google_api_keys())
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'message': f'Reset to API Key #1 of {keys_count} available keys',
+                'type': 'success',
                 'sticky': False,
             }
         }

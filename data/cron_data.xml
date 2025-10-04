@@ -50,7 +50,7 @@ if config:
             <field name="enable_deduplication">True</field>
             <field name="skip_products_with_images">True</field>
             <field name="force_update_mode">False</field>
-            <field name="test_mode">True</field>
+            <field name="test_mode">False</field>
             <field name="test_product_limit">10</field>
             <field name="enable_detailed_logging">True</field>
             <field name="log_retention_days">30</field>

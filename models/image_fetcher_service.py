@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import logging
+import re
 import requests
 import time
 from datetime import datetime, timedelta
@@ -227,20 +228,38 @@ class ProductImageFetcher(models.TransientModel):
         """Prepare search keywords for the product"""
         keywords = []
         
-        if product.name:
-            keywords.append(product.name)
-        
-        if product.default_code:
-            keywords.append(product.default_code)
-            
-        if product.categ_id and product.categ_id.name:
-            keywords.append(product.categ_id.name)
-        
-        # Add brand if available
+        # Extract brand from product name if available
+        brand = None
         if hasattr(product, 'brand_id') and product.brand_id:
-            keywords.append(product.brand_id.name)
+            brand = product.brand_id.name
         
-        return ' '.join(keywords[:3])  # Limit to first 3 elements
+        # Clean product name - remove internal codes and make more generic
+        if product.name:
+            name = product.name
+            # Remove common internal identifiers
+            name = re.sub(r'\b\d{8}\b', '', name)  # Remove 8-digit codes like 00002649
+            name = re.sub(r'\s+', ' ', name).strip()  # Clean extra spaces
+            
+            # If we have a brand, make sure it's in the search
+            if brand and brand.upper() not in name.upper():
+                keywords.append(f"{brand} {name}")
+            else:
+                keywords.append(name)
+        
+        # Add category for better context
+        if product.categ_id and product.categ_id.name and product.categ_id.name != 'All':
+            category = product.categ_id.name
+            if len(keywords) == 0 or category.lower() not in keywords[0].lower():
+                keywords.append(category)
+        
+        # Join and limit length
+        search_query = ' '.join(keywords[:2])  # Use top 2 elements
+        
+        # Limit total length to avoid overly complex queries
+        if len(search_query) > 100:
+            search_query = search_query[:100].rsplit(' ', 1)[0]  # Cut at word boundary
+            
+        return search_query
 
     def _extract_product_identifiers(self, product):
         """Extract product identifiers like EAN, UPC, etc."""
@@ -286,9 +305,8 @@ class ProductImageFetcher(models.TransientModel):
                 'cx': config.google_search_engine_id,
                 'q': search_keywords,
                 'searchType': 'image',
-                'imgSize': 'large',
-                'imgType': 'photo',
-                'num': 3,  # Get multiple results to choose best
+                'imgSize': 'medium',  # Less restrictive than 'large'
+                'num': 5,  # Get more results to choose from
                 'safe': 'active'
             }
             
@@ -315,7 +333,6 @@ class ProductImageFetcher(models.TransientModel):
                 _logger.info(f"Google returned {len(items)} image results")
                 
                 if items:
-                    
                     # Try each image until we find a valid one
                     for item in items:
                         image_url = item.get('link')
@@ -328,6 +345,10 @@ class ProductImageFetcher(models.TransientModel):
                                     'api_key_used': config.current_api_key_index + 1
                                 })
                                 return image_data, image_info
+                else:
+                    # No results found, try fallback searches
+                    _logger.info("No results with original search, trying fallback strategies...")
+                    return self._try_fallback_searches(product, config, session, url, current_api_key)
                 
             else:
                 _logger.warning(f"Google API returned status {response.status_code}: {response.text}")
@@ -337,6 +358,84 @@ class ProductImageFetcher(models.TransientModel):
         except Exception as e:
             _logger.error(f"Error in Google fetch: {str(e)}")
             
+        return None, {}
+
+    def _try_fallback_searches(self, product, config, session, url, api_key):
+        """Try simplified search strategies when main search fails"""
+        
+        fallback_queries = []
+        
+        # Strategy 1: Just the product name without codes/categories
+        if product.name:
+            clean_name = re.sub(r'\b\d{5,}\b', '', product.name)  # Remove long number codes
+            clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+            if clean_name:
+                fallback_queries.append(clean_name)
+        
+        # Strategy 2: Brand + basic product type (extract from category or name)
+        brand = None
+        if hasattr(product, 'brand_id') and product.brand_id:
+            brand = product.brand_id.name
+        
+        if brand:
+            # Try brand + category
+            if product.categ_id and product.categ_id.name != 'All':
+                fallback_queries.append(f"{brand} {product.categ_id.name}")
+            
+            # Try brand + first word of product name
+            if product.name:
+                first_word = product.name.split()[0] if product.name.split() else ""
+                if first_word and first_word != brand:
+                    fallback_queries.append(f"{brand} {first_word}")
+        
+        # Strategy 3: Just the category if specific enough
+        if product.categ_id and product.categ_id.name not in ['All', 'VARIOS']:
+            fallback_queries.append(product.categ_id.name)
+        
+        # Try each fallback query
+        for i, query in enumerate(fallback_queries[:3]):  # Limit to 3 attempts
+            _logger.info(f"Trying fallback search #{i+1}: '{query}'")
+            
+            params = {
+                'key': api_key,
+                'cx': config.google_search_engine_id,
+                'q': query,
+                'searchType': 'image',
+                'imgSize': 'medium',
+                'num': 3,
+                'safe': 'active'
+            }
+            
+            time.sleep(0.5)  # Shorter delay for fallback searches
+            
+            try:
+                response = session.get(url, params=params, timeout=15)
+                if response.status_code == 200:
+                    data = response.json()
+                    items = data.get('items', [])
+                    
+                    _logger.info(f"Fallback search #{i+1} returned {len(items)} results")
+                    
+                    if items:
+                        # Try each image
+                        for item in items:
+                            image_url = item.get('link')
+                            if image_url:
+                                image_data, image_info = self._download_and_validate_image(image_url, config, 'google')
+                                if image_data:
+                                    image_info.update({
+                                        'title': item.get('title', ''),
+                                        'source': 'google_fallback',
+                                        'search_query': query,
+                                        'api_key_used': config.current_api_key_index + 1
+                                    })
+                                    _logger.info(f"Found image using fallback search: '{query}'")
+                                    return image_data, image_info
+                                    
+            except Exception as e:
+                _logger.warning(f"Fallback search #{i+1} failed: {str(e)}")
+                continue
+        
         return None, {}
 
     def _fetch_description_from_google(self, product, search_keywords, config):

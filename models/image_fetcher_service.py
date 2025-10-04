@@ -24,12 +24,41 @@ class ProductImageFetcher(models.TransientModel):
     _description = 'Product Image Fetcher Service'
 
     def _get_session(self):
-        """Get a requests session with proper headers"""
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
-        return session
+        """Get a requests session with enhanced configuration"""
+        if not hasattr(self, '_session') or self._session is None:
+            session = requests.Session()
+            
+            # Set default headers to avoid blocks
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Cache-Control': 'no-cache'
+            })
+            
+            # Configure retry strategy
+            from requests.adapters import HTTPAdapter
+            from urllib3.util.retry import Retry
+            
+            retry_strategy = Retry(
+                total=3,
+                status_forcelist=[403, 429, 500, 502, 503, 504],
+                method_whitelist=["HEAD", "GET", "OPTIONS"],
+                backoff_factor=0.5,
+                respect_retry_after_header=True
+            )
+            
+            adapter = HTTPAdapter(max_retries=retry_strategy, pool_maxsize=10)
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
+            
+            # Store session for reuse
+            self._session = session
+            
+        return self._session
 
     def _handle_rate_limit(self, response, operation="API call", config=None):
         """Handle rate limit errors with API key rotation and exponential backoff"""
@@ -586,50 +615,136 @@ class ProductImageFetcher(models.TransientModel):
         return None, {}
 
     def _download_and_validate_image(self, image_url, config, source):
-        """Download and validate an image"""
+        """Download and validate an image with better error handling"""
         try:
             session = self._get_session()
             
-            # Download with timeout
-            response = session.get(image_url, timeout=30, stream=True)
-            response.raise_for_status()
+            # Enhanced headers to avoid 403 blocks
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+                'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'image',
+                'Sec-Fetch-Mode': 'no-cors',
+                'Sec-Fetch-Site': 'cross-site'
+            }
             
-            # Check content type
-            content_type = response.headers.get('content-type', '').lower()
-            if 'image' not in content_type:
-                _logger.warning(f"Invalid content type: {content_type}")
+            _logger.info(f"Attempting to download: {image_url}")
+            
+            # First attempt with enhanced headers
+            response = session.get(image_url, headers=headers, timeout=30, stream=True)
+            
+            # Handle 403 Forbidden specifically
+            if response.status_code == 403:
+                _logger.warning(f"403 Forbidden for {image_url}, trying alternative approach")
+                # Try with different user agent
+                headers['User-Agent'] = 'Googlebot-Image/1.0'
+                headers['Referer'] = 'https://www.google.com/'
+                response = session.get(image_url, headers=headers, timeout=20, stream=True)
+                
+                if response.status_code == 403:
+                    _logger.warning(f"Still 403 after retry for {image_url}, skipping")
+                    return None, {}
+            
+            # Check for other HTTP errors
+            if response.status_code != 200:
+                _logger.warning(f"HTTP {response.status_code} for {image_url}")
                 return None, {}
             
-            # Read image data
-            image_data = response.content
+            # Check content length
+            content_length = response.headers.get('content-length')
+            if content_length and int(content_length) < 1000:  # Too small
+                _logger.warning(f"Content too small ({content_length} bytes) for {image_url}")
+                return None, {}
             
-            # Basic validation with PIL
+            # Check content type first
+            content_type = response.headers.get('content-type', '').lower()
+            if content_type and not any(img_type in content_type for img_type in ['image/', 'jpeg', 'jpg', 'png', 'gif', 'webp']):
+                _logger.warning(f"Invalid content type '{content_type}' for {image_url}")
+                return None, {}
+            
+            # Read image data with size limit
+            image_data = b''
+            max_size = 10 * 1024 * 1024  # 10MB limit
+            
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    image_data += chunk
+                    if len(image_data) > max_size:
+                        _logger.warning(f"Image too large (>{max_size} bytes) for {image_url}")
+                        return None, {}
+            
+            # Minimum size check
+            if len(image_data) < 2000:  # At least 2KB
+                _logger.warning(f"Image too small ({len(image_data)} bytes) for {image_url}")
+                return None, {}
+            
+            # Enhanced PIL validation
             try:
-                image = Image.open(io.BytesIO(image_data))
+                # Create BytesIO object and validate
+                image_buffer = io.BytesIO(image_data)
                 
-                # Calculate quality score
-                quality_score = self._calculate_image_quality(image)
-                
-                image_info = {
-                    'width': image.width,
-                    'height': image.height,
-                    'format': image.format or 'JPEG',
-                    'size_bytes': len(image_data),
-                    'quality_score': quality_score,
-                    'source_url': image_url,
-                    'source': source
-                }
-                
-                _logger.info(f"Image found: {image.width}x{image.height}, {len(image_data)} bytes, quality: {quality_score}")
-                
-                return base64.b64encode(image_data).decode('utf-8'), image_info
+                # Try to open and verify the image
+                with Image.open(image_buffer) as image:
+                    # Force load the image data to catch corrupted files
+                    image.load()
+                    
+                    # Basic size validation
+                    width, height = image.size
+                    if width < 100 or height < 100:
+                        _logger.warning(f"Image too small {width}x{height} for {image_url}")
+                        return None, {}
+                    
+                    # Check for reasonable aspect ratio
+                    aspect_ratio = width / height
+                    if aspect_ratio > 5 or aspect_ratio < 0.2:
+                        _logger.warning(f"Unusual aspect ratio {aspect_ratio:.2f} for {image_url}")
+                        return None, {}
+                    
+                    # Get format
+                    img_format = image.format.lower() if image.format else 'unknown'
+                    
+                    # Calculate quality score
+                    quality_score = self._calculate_image_quality(image)
+                    
+                    image_info = {
+                        'width': width,
+                        'height': height,
+                        'format': img_format,
+                        'size_bytes': len(image_data),
+                        'quality_score': quality_score,
+                        'source_url': image_url,
+                        'source': source,
+                        'image_size': f"{width}x{height}",
+                        'image_format': img_format,
+                        'file_size_kb': round(len(image_data) / 1024, 2)
+                    }
+                    
+                    _logger.info(f"✅ Valid image: {width}x{height} {img_format}, {len(image_data)} bytes, quality: {quality_score}")
+                    
+                    return base64.b64encode(image_data).decode('utf-8'), image_info
                 
             except Exception as e:
-                _logger.warning(f"PIL validation failed: {str(e)}")
+                _logger.warning(f"PIL validation failed for {image_url}: {str(e)}")
+                # Try to get more specific error info
+                if "cannot identify image file" in str(e).lower():
+                    _logger.warning(f"Invalid image format or corrupted file: {image_url}")
+                elif "truncated" in str(e).lower():
+                    _logger.warning(f"Incomplete image download: {image_url}")
                 return None, {}
                 
+        except requests.exceptions.Timeout:
+            _logger.warning(f"Timeout downloading {image_url}")
+        except requests.exceptions.ConnectionError:
+            _logger.warning(f"Connection error for {image_url}")
+        except requests.exceptions.RequestException as e:
+            _logger.warning(f"Request failed for {image_url}: {str(e)}")
         except Exception as e:
-            _logger.warning(f"Download failed for {image_url}: {str(e)}")
+            _logger.warning(f"Unexpected error downloading {image_url}: {str(e)}")
             
         return None, {}
 

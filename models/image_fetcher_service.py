@@ -37,7 +37,7 @@ class ProductImageFetcher(models.TransientModel):
             if retry_after:
                 wait_time = int(retry_after)
             else:
-                wait_time = 20
+                wait_time = 60
             
             _logger.warning(f"Rate limit hit for {operation}. Waiting {wait_time} seconds...")
             time.sleep(wait_time)

@@ -21,7 +21,7 @@
                         <field name="image_quality_score" readonly="1"/>
                     </group>
                     <group string="Actions" name="actions">
-                        <button name="action_fetch_images_manual" string="Fetch Images Now" type="object"
+                        <button name="action_fetch_images_manual" string="Fetch Image and Description now" type="object"
                                class="btn-primary" icon="fa-download"/>
                     </group>
                 </page>

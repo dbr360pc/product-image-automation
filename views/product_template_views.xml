@@ -7,20 +7,22 @@
         <field name="inherit_id" ref="product.product_template_form_view"/>
         <field name="arch" type="xml">
             <!-- Add image automation fields to the General Information tab -->
-            <xpath expr="//field[@name='barcode']" position="after">
+            <xpath expr="//field[@name='default_code']" position="after">
                 <field name="upc_code"/>
                 <field name="manufacturer_part_number"/>
             </xpath>
             
-            <!-- Add image automation group -->
-            <xpath expr="//page[@name='general_information']//group[last()]" position="after">
-                <group string="Image Automation" name="image_automation">
-                    <field name="image_auto_fetch_enabled"/>
-                    <field name="image_last_fetch_date" readonly="1"/>
-                    <field name="image_fetch_attempts" readonly="1"/>
-                    <field name="image_fetch_source" readonly="1"/>
-                    <field name="image_quality_score" readonly="1"/>
-                </group>
+            <!-- Add image automation page -->
+            <xpath expr="//notebook" position="inside">
+                <page string="Image Automation" name="image_automation">
+                    <group string="Automation Settings" name="automation_settings">
+                        <field name="image_auto_fetch_enabled"/>
+                        <field name="image_last_fetch_date" readonly="1"/>
+                        <field name="image_fetch_attempts" readonly="1"/>
+                        <field name="image_fetch_source" readonly="1"/>
+                        <field name="image_quality_score" readonly="1"/>
+                    </group>
+                </page>
             </xpath>
             
             <!-- Add action button to header -->
@@ -37,7 +39,7 @@
         <field name="model">product.template</field>
         <field name="inherit_id" ref="product.product_template_tree_view"/>
         <field name="arch" type="xml">
-            <xpath expr="//field[@name='list_price']" position="after">
+            <xpath expr="//field[@name='default_code']" position="after">
                 <field name="image_auto_fetch_enabled" optional="hide"/>
                 <field name="image_last_fetch_date" optional="hide"/>
                 <field name="image_fetch_source" optional="hide"/>
@@ -51,12 +53,12 @@
         <field name="model">product.template</field>
         <field name="inherit_id" ref="product.product_template_search_view"/>
         <field name="arch" type="xml">
-            <xpath expr="//field[@name='barcode']" position="after">
+            <xpath expr="//field[@name='default_code']" position="after">
                 <field name="upc_code"/>
                 <field name="manufacturer_part_number"/>
             </xpath>
             
-            <xpath expr="//filter[@name='consumable']" position="after">
+            <xpath expr="//filter[last()]" position="after">
                 <separator/>
                 <filter string="Auto-fetch Enabled" name="auto_fetch_enabled"
                         domain="[('image_auto_fetch_enabled', '=', True)]"/>

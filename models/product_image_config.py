@@ -38,7 +38,9 @@ class ProductImageConfig(models.Model):
     # Image Quality Settings
     min_image_width = fields.Integer('Minimum Image Width (px)', default=800)
     min_image_height = fields.Integer('Minimum Image Height (px)', default=600)
-    max_image_size_mb = fields.Float('Maximum Image Size (MB)', default=5.0)
+    min_image_size = fields.Integer('Minimum Image Size (KB)', default=50)
+    max_image_size = fields.Float('Maximum Image Size (MB)', default=5.0)
+    max_image_size_mb = fields.Float('Maximum Image Size (MB)', default=5.0)  # Alias for compatibility
     preferred_formats = fields.Selection([
         ('jpg', 'JPEG only'),
         ('png', 'PNG only'),
@@ -52,8 +54,10 @@ class ProductImageConfig(models.Model):
     
     # Processing Settings
     batch_size = fields.Integer('Batch Size for Processing', default=50)
+    auto_generate_descriptions = fields.Boolean('Auto-Generate Product Descriptions', default=False)
     enable_deduplication = fields.Boolean('Enable Image Deduplication', default=True)
     skip_products_with_images = fields.Boolean('Skip Products Already Having Images', default=True)
+    process_products_with_images = fields.Boolean('Process Products Already Having Images', default=False)
     force_update_mode = fields.Boolean('Force Update Mode (Re-download)', default=False)
     
     # Test Mode

@@ -58,6 +58,7 @@
                             <group string="Image Requirements">
                                 <field name="min_image_width"/>
                                 <field name="min_image_height"/>
+                                <field name="min_image_size"/>
                                 <field name="max_image_size_mb"/>
                                 <field name="preferred_formats"/>
                             </group>
@@ -65,7 +66,9 @@
                             <group string="Processing Options">
                                 <field name="enable_deduplication"/>
                                 <field name="skip_products_with_images"/>
+                                <field name="process_products_with_images"/>
                                 <field name="force_update_mode"/>
+                                <field name="auto_generate_descriptions"/>
                             </group>
                         </page>
                         

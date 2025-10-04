@@ -188,7 +188,7 @@ class ProductImageFetcher(models.TransientModel):
         description_data = {}
         
         # 1. Try Amazon first if configured
-        if config.use_amazon and self._has_amazon_config(config):
+        if config.use_amazon_api and self._has_amazon_config(config):
             _logger.info("Trying Amazon...")
             image_data, image_info = self._fetch_from_amazon(product, identifiers, search_keywords, config)
         
@@ -203,7 +203,7 @@ class ProductImageFetcher(models.TransientModel):
             description_data = self._fetch_description_from_google(product, search_keywords, config)
         
         # 4. Try Bing if still no image and configured
-        if not image_data and config.use_bing and self._has_bing_config(config):
+        if not image_data and config.use_bing_images and self._has_bing_config(config):
             _logger.info("Trying Bing...")
             image_data, image_info = self._fetch_from_bing(product, search_keywords, config)
         

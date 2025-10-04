@@ -22,12 +22,13 @@ class ProductImageFetcher(models.TransientModel):
     _name = 'product.image.fetcher'
     _description = 'Product Image Fetcher Service'
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    def _get_session(self):
+        """Get a requests session with proper headers"""
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
+        return session
 
     @api.model
     def run_daily_scan(self):
@@ -239,7 +240,8 @@ class ProductImageFetcher(models.TransientModel):
                 'safe': 'active'
             }
             
-            response = self.session.get(url, params=params, timeout=30)
+            session = self._get_session()
+            response = session.get(url, params=params, timeout=30)
             
             if response.status_code == 200:
                 data = response.json()
@@ -272,7 +274,8 @@ class ProductImageFetcher(models.TransientModel):
                 'safeSearch': 'strict'
             }
             
-            response = self.session.get(url, headers=headers, params=params, timeout=30)
+            session = self._get_session()
+            response = session.get(url, headers=headers, params=params, timeout=30)
             
             if response.status_code == 200:
                 data = response.json()
@@ -292,7 +295,8 @@ class ProductImageFetcher(models.TransientModel):
     def _download_and_validate_image(self, image_url, config, source):
         """Download image and validate quality requirements"""
         try:
-            response = self.session.get(image_url, timeout=30, stream=True)
+            session = self._get_session()
+            response = session.get(image_url, timeout=30, stream=True)
             response.raise_for_status()
             
             # Check file size

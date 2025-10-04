@@ -213,7 +213,7 @@ class ProductImageFetcher(models.TransientModel):
         else:
             # Log no image found
             self.env['product.image.log'].log_operation(
-                product.id, 'fetch', 'no_results', 'No suitable image found from any source',
+                product.id, 'fetch', 'info', 'No suitable image found from any source',
                 batch_id=batch_id, job_type=job_type, processing_time=time.time() - start_time
             )
         
@@ -649,7 +649,7 @@ class ProductImageFetcher(models.TransientModel):
                 
                 # Log success
                 self.env['product.image.log'].log_operation(
-                    product.id, 'description', 'success', 
+                    product.id, 'update', 'success', 
                     f"Description generated and saved to {', '.join(update_vals.keys())}",
                     batch_id=batch_id, job_type=job_type,
                     source=description_data.get('source', 'unknown')
@@ -660,7 +660,7 @@ class ProductImageFetcher(models.TransientModel):
         except Exception as e:
             _logger.error(f"Failed to save description for product {product.id}: {str(e)}")
             self.env['product.image.log'].log_operation(
-                product.id, 'description', 'failed', f"Failed to save description: {str(e)}",
+                product.id, 'error', 'failed', f"Failed to save description: {str(e)}",
                 batch_id=batch_id, job_type=job_type
             )
 

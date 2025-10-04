@@ -384,26 +384,6 @@ class ProductImageFetcher(models.TransientModel):
             if clean_name:
                 fallback_queries.append(clean_name)
         
-        # Strategy 2: Brand + basic product type (extract from category or name)
-        brand = None
-        if hasattr(product, 'brand_id') and product.brand_id:
-            brand = product.brand_id.name
-        
-        if brand:
-            # Try brand + category
-            if product.categ_id and product.categ_id.name != 'All':
-                fallback_queries.append(f"{brand} {product.categ_id.name}")
-            
-            # Try brand + first word of product name
-            if product.name:
-                first_word = product.name.split()[0] if product.name.split() else ""
-                if first_word and first_word != brand:
-                    fallback_queries.append(f"{brand} {first_word}")
-        
-        # Strategy 3: Just the category if specific enough
-        if product.categ_id and product.categ_id.name not in ['All', 'VARIOS']:
-            fallback_queries.append(product.categ_id.name)
-        
         # Try each fallback query
         for i, query in enumerate(fallback_queries[:3]):  # Limit to 3 attempts
             _logger.info(f"Trying fallback search #{i+1}: '{query}'")
@@ -416,11 +396,11 @@ class ProductImageFetcher(models.TransientModel):
                 'imgSize': 'medium',
                 'num': 3,
                 'safe': 'active',
-                'gl': 'ec',  # Ecuador geolocation
-                'hl': 'es'   # Spanish language
+                'gl': 'ec',
+                'hl': 'es'
             }
             
-            time.sleep(0.5)  # Shorter delay for fallback searches
+            time.sleep(0.5)
             
             try:
                 response = session.get(url, params=params, timeout=15)

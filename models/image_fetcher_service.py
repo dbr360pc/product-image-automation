@@ -170,43 +170,49 @@ class ProductImageFetcher(models.TransientModel):
         """Process a single product for image and description fetching"""
         start_time = time.time()
         
-        # Check if we should skip this product
-        if product.image_1920 and not force_update and not config.process_products_with_images:
-            _logger.info(f"Skipping product {product.id} - already has image")
-            return
-        
         _logger.info(f"Processing product: {product.name} (ID: {product.id})")
         
-        # Prepare search keywords
+        # Determine what needs to be processed
+        needs_image = not product.image_1920 or (force_update and config.process_products_with_images)
+        needs_description = config.auto_generate_descriptions and not product.description_sale
+        
+        # Skip if nothing needs to be done
+        if not needs_image and not needs_description:
+            _logger.info(f"Skipping product {product.id} - has image and description")
+            return
+        
+        # Prepare search keywords if we need to fetch anything
         search_keywords = self._prepare_search_keywords(product)
         identifiers = self._extract_product_identifiers(product)
         
-        _logger.info(f"Search keywords: {search_keywords}")
+        _logger.info(f"Search keywords: {search_keywords} (needs_image: {needs_image}, needs_description: {needs_description})")
         
-        # Try different sources based on priority
+        # Initialize result containers
         image_data = None
         image_info = {}
         description_data = {}
         
-        # 1. Try Amazon first if configured
-        if config.use_amazon_api and self._has_amazon_config(config):
-            _logger.info("Trying Amazon...")
-            image_data, image_info = self._fetch_from_amazon(product, identifiers, search_keywords, config)
+        # Only try to fetch images if needed
+        if needs_image:
+            # 1. Try Amazon first if configured
+            if config.use_amazon_api and self._has_amazon_config(config):
+                _logger.info("Trying Amazon...")
+                image_data, image_info = self._fetch_from_amazon(product, identifiers, search_keywords, config)
+            
+            # 2. Try Google Images if no image found and configured
+            if not image_data and config.use_google_images and self._has_google_config(config):
+                _logger.info("Trying Google Images...")
+                image_data, image_info = self._fetch_from_google(product, search_keywords, config)
+            
+            # 3. Try Bing if still no image and configured
+            if not image_data and config.use_bing_images and self._has_bing_config(config):
+                _logger.info("Trying Bing...")
+                image_data, image_info = self._fetch_from_bing(product, search_keywords, config)
         
-        # 2. Try Google Images if no image found and configured
-        if not image_data and config.use_google_images and self._has_google_config(config):
-            _logger.info("Trying Google Images...")
-            image_data, image_info = self._fetch_from_google(product, search_keywords, config)
-        
-        # 3. Fetch description from Google if configured and needed
-        if config.auto_generate_descriptions and not product.description_sale:
+        # Fetch description if needed (independent of image processing)
+        if needs_description:
             _logger.info("Fetching description from Google...")
             description_data = self._fetch_description_from_google(product, search_keywords, config)
-        
-        # 4. Try Bing if still no image and configured
-        if not image_data and config.use_bing_images and self._has_bing_config(config):
-            _logger.info("Trying Bing...")
-            image_data, image_info = self._fetch_from_bing(product, search_keywords, config)
         
         # Save results
         if image_data:
